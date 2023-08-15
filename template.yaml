@@ -1,16 +1,25 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 
+Description: Template for creating a static website hosted on S3 and accessible on CloudFront
 Parameters:
-  BucketName:
+  S3BucketName:
     Type: String
-    Description: Name of S3 bucket
-
+    Description: Name of S3 Bucket
+  Route53DomainName:
+    Type: String
+    Description: Name of Route53 Domain
+  # DomainHostedZoneId:
+  #   Type: String
+  #   Description: 
+  AcmCertificateArn:
+    Type: String
+    Description: ARN of ACM certificate
 Resources:
+  # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket.html
   WebsiteBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Ref BucketName
-      AccessControl: PublicRead # TODO check
+      BucketName: !Ref S3BucketName
+      # AccessControl: PublicRead # TODO check
       PublicAccessBlockConfiguration: # TODO check
         BlockPublicAcls: false
         BlockPublicPolicy: false
@@ -19,7 +28,9 @@ Resources:
       WebsiteConfiguration:
         IndexDocument: index.html
         ErrorDocument: error.html
-    DeletionPolicy: Retain
+    # DeletionPolicy: Retain
+
+  # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-policy.html    
   WebsiteBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -32,12 +43,70 @@ Resources:
           Action: s3:GetObject
           Resource: !Join ['', ['arn:aws:s3:::', !Ref 'WebsiteBucket', /*]]
 
+  # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-cloudfront-distribution.html
+  WebsiteDistribution:
+    Type: AWS::CloudFront::Distribution
+    DependsOn:
+    - WebsiteBucket
+    Properties:
+      DistributionConfig:
+        Comment: Cloudfront Distribution pointing to S3 bucket
+        Origins:
+        - DomainName: !Select [2, !Split ["/", !GetAtt WebsiteBucket.WebsiteURL]]
+          Id: S3Origin
+          CustomOriginConfig:
+            HTTPPort: '80'
+            HTTPSPort: '443'
+            OriginProtocolPolicy: http-only
+        Enabled: true
+        HttpVersion: 'http2'
+        DefaultRootObject: index.html
+        Aliases:
+        - !Ref 'Route53DomainName'
+        DefaultCacheBehavior:
+          AllowedMethods:
+          - GET
+          - HEAD
+          Compress: true
+          TargetOriginId: S3Origin
+          ForwardedValues:
+            QueryString: true
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: redirect-to-https
+        PriceClass: PriceClass_All
+        ViewerCertificate:
+          AcmCertificateArn: !Ref AcmCertificateArn
+          SslSupportMethod: sni-only
+
+  #https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-route53-recordsetgroup.html
+  WebsiteDnsRecordSet:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      # Specify either HostedZoneName or HostedZoneId, but not both. If you have multiple hosted zones with the same domain name, you must specify the hosted zone using HostedZoneId.
+      HostedZoneName: !Join ['', [!Ref Route53DomainName, .]]
+      # If IPv6 is enabled for the distribution, create two resource record sets to route traffic to your distribution, one with a value of A and one with a value of AAAA.
+      RecordSets:
+      - Name: !Ref Route53DomainName
+        Type: A
+        AliasTarget:
+          # This is always the hosted zone ID when you create an alias record that routes traffic to a CloudFront distribution.
+          HostedZoneId: Z2FDTNDATAQYW2
+          DNSName: !GetAtt [WebsiteDistribution, DomainName]
+      - Name: !Ref Route53DomainName
+        Type: AAAA
+        AliasTarget:
+          # This is always the hosted zone ID when you create an alias record that routes traffic to a CloudFront distribution.
+          HostedZoneId: Z2FDTNDATAQYW2
+          DNSName: !GetAtt [WebsiteDistribution, DomainName]
+
 Outputs:
-  WebsiteBucket:
-    Value: !Ref WebsiteBucket
-    Description: Name of S3 bucket
-  WebsiteURL:
-    Value: !GetAtt 
-      - WebsiteBucket
-      - WebsiteURL
-    Description: HTTP URL for website hosted on S3    
+  S3WebsiteUrl:
+    Value: !GetAtt [WebsiteBucket, WebsiteURL]
+    Description: HTTP URL for S3 website endpoint
+  CloudFrontWebsiteUrl:
+    Value: !GetAtt [WebsiteDistribution, DomainName]
+    Description: HTTPS URL for Cloudfront distribution endpoint
+  # FullDomain:
+  #   Value: !Ref 'FullDomainName'
+  #   Description: Full DomainName    
