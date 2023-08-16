@@ -8,4 +8,4 @@ It creates the following resources:
 * CloudFront distribution for HTTPS support
 * Route53 record for the custom domain name
 
-Please refer to my [blog post](https://dev.to/zirkelc/aws-website-hosting-s3-https-cloudfront-route53-4j4-temp-slug-5410438) for more details.
+Please refer to my [blog post](https://dev.to/zirkelc/websites-with-aws-hosting-https-and-custom-domain-2l57) for more details.
