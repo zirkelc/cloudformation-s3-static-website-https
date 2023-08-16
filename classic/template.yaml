@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Template for creating a static website hosted on S3 and accessible on CloudFront
+Description: Template for creating a static website hosted on S3 and accessible on CloudFront via HTTPS with a custom domain name
 Parameters:
   S3BucketName:
     Type: String
@@ -7,28 +7,24 @@ Parameters:
   Route53DomainName:
     Type: String
     Description: Name of Route53 Domain
-  # DomainHostedZoneId:
-  #   Type: String
-  #   Description: 
   AcmCertificateArn:
     Type: String
-    Description: ARN of ACM certificate
+    Description: ARN of ACM Certificate
 Resources:
   # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket.html
   WebsiteBucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Ref S3BucketName
-      # AccessControl: PublicRead # TODO check
-      PublicAccessBlockConfiguration: # TODO check
+      PublicAccessBlockConfiguration:
         BlockPublicAcls: false
         BlockPublicPolicy: false
         IgnorePublicAcls: false
         RestrictPublicBuckets: false      
       WebsiteConfiguration:
         IndexDocument: index.html
-        ErrorDocument: error.html
-    # DeletionPolicy: Retain
+        ErrorDocument: 404.html
+    DeletionPolicy: Retain
 
   # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-policy.html    
   WebsiteBucketPolicy:
@@ -41,7 +37,7 @@ Resources:
           Effect: Allow
           Principal: '*'
           Action: s3:GetObject
-          Resource: !Join ['', ['arn:aws:s3:::', !Ref 'WebsiteBucket', /*]]
+          Resource: !Join ['', ['arn:aws:s3:::', !Ref WebsiteBucket, /*]]
 
   # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-cloudfront-distribution.html
   WebsiteDistribution:
@@ -52,17 +48,17 @@ Resources:
       DistributionConfig:
         Comment: Cloudfront Distribution pointing to S3 bucket
         Origins:
-        - DomainName: !Select [2, !Split ["/", !GetAtt WebsiteBucket.WebsiteURL]]
+        - DomainName: !Select [1, !Split [//, !GetAtt WebsiteBucket.WebsiteURL]]
           Id: S3Origin
           CustomOriginConfig:
-            HTTPPort: '80'
-            HTTPSPort: '443'
+            HTTPPort: 80
+            HTTPSPort: 443
             OriginProtocolPolicy: http-only
         Enabled: true
-        HttpVersion: 'http2'
+        HttpVersion: http2
         DefaultRootObject: index.html
         Aliases:
-        - !Ref 'Route53DomainName'
+        - !Ref Route53DomainName
         DefaultCacheBehavior:
           AllowedMethods:
           - GET
@@ -107,6 +103,6 @@ Outputs:
   CloudFrontWebsiteUrl:
     Value: !GetAtt [WebsiteDistribution, DomainName]
     Description: HTTPS URL for Cloudfront distribution endpoint
-  # FullDomain:
-  #   Value: !Ref 'FullDomainName'
-  #   Description: Full DomainName    
+  Route53WebsiteUrl:
+    Value: !Join ['', [https://, !Ref Route53DomainName]]
+    Description: HTTPS URL for Route53 domain name
