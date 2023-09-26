@@ -1,5 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Template for creating a static website hosted on S3 and accessible on CloudFront via HTTPS with a custom domain name
+Description: | 
+  Template for creating a static website hosted on S3 and served through CloudFront via HTTPS with a custom domain name
+
 Parameters:
   S3BucketName:
     Type: String
@@ -10,10 +12,12 @@ Parameters:
   AcmCertificateArn:
     Type: String
     Description: ARN of ACM Certificate
+
 Resources:
   # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket.html
-  WebsiteBucket:
+  S3Bucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
     Properties:
       BucketName: !Ref S3BucketName
       PublicAccessBlockConfiguration:
@@ -24,45 +28,42 @@ Resources:
       WebsiteConfiguration:
         IndexDocument: index.html
         ErrorDocument: 404.html
-    DeletionPolicy: Retain
 
   # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-policy.html    
-  WebsiteBucketPolicy:
+  S3BucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
-      Bucket: !Ref WebsiteBucket
+      Bucket: !Ref S3Bucket
       PolicyDocument:
         Statement:
-        - Sid: PublicReadForGetBucketObjects
+        - Action: s3:GetObject
           Effect: Allow
           Principal: '*'
-          Action: s3:GetObject
-          Resource: !Join ['', ['arn:aws:s3:::', !Ref WebsiteBucket, /*]]
+          Resource: !Join ['', ['arn:aws:s3:::', !Ref S3Bucket, /*]]
 
   # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-cloudfront-distribution.html
-  WebsiteDistribution:
+  CloudFrontDistribution:
     Type: AWS::CloudFront::Distribution
-    DependsOn:
-    - WebsiteBucket
     Properties:
       DistributionConfig:
-        Comment: Cloudfront Distribution pointing to S3 bucket
-        Origins:
-        - DomainName: !Select [1, !Split [//, !GetAtt WebsiteBucket.WebsiteURL]]
-          Id: S3Origin
-          CustomOriginConfig:
-            HTTPPort: 80
-            HTTPSPort: 443
-            OriginProtocolPolicy: http-only
         Enabled: true
         HttpVersion: http2
         DefaultRootObject: index.html
+        IPV6Enabled: true      
+        PriceClass: PriceClass_All
+        Origins:
+          - DomainName: !Select [1, !Split [//, !GetAtt S3Bucket.WebsiteURL]]
+            Id: S3Origin
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: http-only
         Aliases:
-        - !Ref Route53DomainName
+          - !Ref Route53DomainName
         DefaultCacheBehavior:
           AllowedMethods:
-          - GET
-          - HEAD
+            - GET
+            - HEAD
           Compress: true
           TargetOriginId: S3Origin
           ForwardedValues:
@@ -70,38 +71,37 @@ Resources:
             Cookies:
               Forward: none
           ViewerProtocolPolicy: redirect-to-https
-        PriceClass: PriceClass_All
         ViewerCertificate:
           AcmCertificateArn: !Ref AcmCertificateArn
           SslSupportMethod: sni-only
 
   #https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-route53-recordsetgroup.html
-  WebsiteDnsRecordSet:
+  Route53RecordSet:
     Type: AWS::Route53::RecordSetGroup
     Properties:
       # Specify either HostedZoneName or HostedZoneId, but not both. If you have multiple hosted zones with the same domain name, you must specify the hosted zone using HostedZoneId.
       HostedZoneName: !Join ['', [!Ref Route53DomainName, .]]
       # If IPv6 is enabled for the distribution, create two resource record sets to route traffic to your distribution, one with a value of A and one with a value of AAAA.
       RecordSets:
-      - Name: !Ref Route53DomainName
-        Type: A
-        AliasTarget:
-          # This is always the hosted zone ID when you create an alias record that routes traffic to a CloudFront distribution.
-          HostedZoneId: Z2FDTNDATAQYW2
-          DNSName: !GetAtt [WebsiteDistribution, DomainName]
-      - Name: !Ref Route53DomainName
-        Type: AAAA
-        AliasTarget:
-          # This is always the hosted zone ID when you create an alias record that routes traffic to a CloudFront distribution.
-          HostedZoneId: Z2FDTNDATAQYW2
-          DNSName: !GetAtt [WebsiteDistribution, DomainName]
+        - Name: !Ref Route53DomainName
+          Type: A
+          AliasTarget:
+            # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-route53-aliastarget.html#cfn-route53-aliastarget-hostedzoneid            
+            HostedZoneId: Z2FDTNDATAQYW2 # CloudFront hosted zone ID
+            DNSName: !GetAtt [CloudFrontDistribution, DomainName]
+        - Name: !Ref Route53DomainName
+          Type: AAAA
+          AliasTarget:
+            # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-route53-aliastarget.html#cfn-route53-aliastarget-hostedzoneid            
+            HostedZoneId: Z2FDTNDATAQYW2 # CloudFront hosted zone ID
+            DNSName: !GetAtt [CloudFrontDistribution, DomainName]
 
 Outputs:
   S3WebsiteUrl:
-    Value: !GetAtt [WebsiteBucket, WebsiteURL]
+    Value: !GetAtt [S3Bucket, WebsiteURL]
     Description: HTTP URL for S3 website endpoint
   CloudFrontWebsiteUrl:
-    Value: !GetAtt [WebsiteDistribution, DomainName]
+    Value: !GetAtt [CloudFrontDistribution, DomainName]
     Description: HTTPS URL for Cloudfront distribution endpoint
   Route53WebsiteUrl:
     Value: !Join ['', [https://, !Ref Route53DomainName]]

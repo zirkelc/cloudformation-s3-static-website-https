@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  Template for creating a static website hosted on S3 and served through CloudFront via HTTPS with a custom domain name
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: Name of S3 Bucket
+  Route53DomainName:
+    Type: String
+    Description: Name of Route53 Domain
+  AcmCertificateArn:
+    Type: String
+    Description: ARN of ACM Certificate
+
+Resources:
+  # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket.html
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Ref S3BucketName
+
+  # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-policy.html    
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Statement:
+          - Action: s3:GetObject
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Resource: !Join ['', ['arn:aws:s3:::', !Ref S3Bucket, /*]]
+            Condition:
+              StringEquals:
+                'AWS:SourceArn': !Join ['', ['arn:aws:cloudfront::', !Ref AWS::AccountId, ':', 'distribution', '/', !Ref CloudFrontDistribution]]
+          - Action: s3:ListBucket
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Resource: !Join ['', ['arn:aws:s3:::', !Ref S3Bucket]]
+            Condition:
+              StringEquals:
+                'AWS:SourceArn': !Join ['', ['arn:aws:cloudfront::', !Ref AWS::AccountId, ':', 'distribution', '/', !Ref CloudFrontDistribution]]
+
+  # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-cloudfront-distribution.html
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2
+        DefaultRootObject: index.html
+        IPV6Enabled: true      
+        PriceClass: PriceClass_All
+        Aliases:
+          - !Ref Route53DomainName                  
+        Origins:
+          - DomainName: !GetAtt [S3Bucket, DomainName]
+            Id: S3Origin
+            OriginAccessControlId: !Ref CloudFrontOriginAccessControl
+            S3OriginConfig: {}
+        DefaultCacheBehavior:
+          Compress: true
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          # https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-cache-policies.html#managed-cache-caching-optimized
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # CachingOptimized          
+          # https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-response-headers-policies.html#managed-response-headers-policies-security
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03 # SecurityHeadersPolicy
+        # For single page applications, you must configure CloudFront to return index.html in case of a 404 error.
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ErrorCachingMinTTL: 0
+            ResponseCode: 200
+            ResponsePagePath: '/index.html'          
+        ViewerCertificate:
+          AcmCertificateArn: !Ref AcmCertificateArn
+          SslSupportMethod: sni-only
+
+  # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-cloudfront-originaccesscontrol.html
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !GetAtt [S3Bucket, DomainName]
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  #https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-route53-recordsetgroup.html
+  Route53RecordSet:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      # Specify either HostedZoneName or HostedZoneId, but not both. If you have multiple hosted zones with the same domain name, you must specify the hosted zone using HostedZoneId.
+      HostedZoneName: !Join ['', [!Ref Route53DomainName, .]]
+      # If IPv6 is enabled for the distribution, create two resource record sets to route traffic to your distribution, one with a value of A and one with a value of AAAA.
+      RecordSets:
+        - Name: !Ref Route53DomainName
+          Type: A
+          AliasTarget:
+            # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-route53-aliastarget.html#cfn-route53-aliastarget-hostedzoneid            
+            HostedZoneId: Z2FDTNDATAQYW2 # CloudFront hosted zone ID
+            DNSName: !GetAtt [CloudFrontDistribution, DomainName]
+        - Name: !Ref Route53DomainName
+          Type: AAAA
+          AliasTarget:
+            # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-route53-aliastarget.html#cfn-route53-aliastarget-hostedzoneid            
+            HostedZoneId: Z2FDTNDATAQYW2 # CloudFront hosted zone ID
+            DNSName: !GetAtt [CloudFrontDistribution, DomainName]
+
+Outputs:
+  S3WebsiteUrl:
+    Value: !GetAtt [S3Bucket, DomainName]
+    Description: HTTPS URL for S3 REST endpoint
+  CloudFrontWebsiteUrl:
+    Value: !GetAtt [CloudFrontDistribution, DomainName]
+    Description: HTTPS URL for Cloudfront distribution endpoint
+  Route53WebsiteUrl:
+    Value: !Join ['', [https://, !Ref Route53DomainName]]
+    Description: HTTPS URL for Route53 domain name
