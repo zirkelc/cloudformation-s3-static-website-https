@@ -5,7 +5,7 @@ It can be deployed via [CloudFormation console](https://docs.aws.amazon.com/AWSC
 
 It requires the following inputs:
 * ARN of an existing [ACM certificate](https://docs.aws.amazon.com/acm/latest/userguide/gs-acm-request-public.html)
-* Name of the existing [Route53 domain](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/dns-configuring.html)
+* Name of an existing [Route53 domain](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/dns-configuring.html)
 * Name of the new S3 bucket that hosts the website
 
 It creates the following resources:
