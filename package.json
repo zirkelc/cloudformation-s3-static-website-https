@@ -1,0 +1,6 @@
+{
+	"name": "cloudformation-templates",
+	"scripts": {
+		"format": "rain fmt -w ./templates/**"
+	}
+}
